@@ -6,7 +6,7 @@
 
 #property copyright "Copyright 2021, TTSS000"
 #property link      "https://twitter.com/ttss000"
-#property version   "1.4"                         // 2021/12/26
+#property version   "1.6"                         // 2022/1/8
 #property strict
 #property indicator_chart_window
 
@@ -15,7 +15,10 @@ input string FontName = "Segoe UI";
 input color JST_Color_Winter = clrCadetBlue;  // Lineの色
 input color JST_Color_Summer = clrOlive;  // Line Summer の色
 input int timediff_winter=7;
+input bool bShowVLine=true;
 input bool bShowDayOfWeek=true;
+input string memo="true=bg line, false=invisible line";
+input bool bDenomiBG=true;
 
 //extern color Color_JST = clrCadetBlue;
 
@@ -24,7 +27,13 @@ bool summer = false;
 
 string vlinebasename="vline";
 string vlinelabelbasename="VlineLabel";
+string vlineDoWlabelbasename="VlineDoWLabel";
 string strDoW[7] = {"Su", "M", "Tu", "W", "Th", "F", "Sa"};
+
+int iDenominator = 1;
+int iDenominator2 = 1;
+int iDenominator_DoW = 1;
+int scaleChart, scaleChart_prev;
 
 //+------------------------------------------------------------------+
 //| Custom indicator initialization function                         |
@@ -37,6 +46,30 @@ int     OnInit()
 }
 
 //+------------------------------------------------------------------+
+void Delete_Vlines_and_Labels()
+{
+
+  int obj_total= ObjectsTotal();
+  for (int k= obj_total; k>=0; k--){
+    string name= ObjectName(k);
+      if(StringFind(StringSubstr(name,0,StringLen(vlinebasename)),vlinebasename)>=0){
+        if(OBJ_VLINE == ObjectType(name) || OBJ_TEXT == ObjectType(name)){
+          ObjectDelete(0,  name);
+        }
+      }
+      if(StringFind(StringSubstr(name,0,StringLen(vlinelabelbasename)),vlinelabelbasename)>=0){
+        if(OBJ_TEXT == ObjectType(name)){
+          ObjectDelete(0,  name);
+        }
+      }
+      if(StringFind(StringSubstr(name,0,StringLen(vlineDoWlabelbasename)),vlineDoWlabelbasename)>=0){
+        if(OBJ_TEXT == ObjectType(name)){
+          ObjectDelete(0,  name);
+        }
+      }
+   }
+}
+//+------------------------------------------------------------------+
 void    OnDeinit(const int reason)
 {
   string objectname_local;
@@ -46,18 +79,34 @@ void    OnDeinit(const int reason)
   // objectname_local2 = vlinelabelbasename + object_comment;
   // objectname_local3 = objectname_local2+"DoW";
 
-  for(int i = 0 ; i < Bars ; i++){
-    objectname_local = vlinebasename 
-        + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])];;
-    ObjectDelete(0,  objectname_local);
-    objectname_local = vlinelabelbasename 
-        + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])];
-    ObjectDelete(0,  objectname_local); 
-    objectname_local = vlinelabelbasename 
-        + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])]+"_DoW";
-    // objectname_local3 = vlinelabelbasename + object_comment + "_DoW";
 
-    ObjectDelete(0,  objectname_local); 
+  if(reason == REASON_REMOVE || reason == REASON_PARAMETERS ||  reason == REASON_CHARTCHANGE  ||  reason == REASON_RECOMPILE){
+    Delete_Vlines_and_Labels();
+  }
+
+  //if(reason == REASON_REMOVE || reason == REASON_PARAMETERS ||  reason == REASON_CHARTCHANGE  ||  reason == REASON_RECOMPILE){
+  if(false){
+  if(reason == REASON_REMOVE || reason == REASON_PARAMETERS   ||  reason == REASON_RECOMPILE){
+    for(int i = 0 ; i < Bars ; i++){
+      objectname_local = vlinebasename 
+          + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])];;
+      ObjectDelete(0,  objectname_local);
+      objectname_local = vlinelabelbasename 
+          + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])];
+      ObjectDelete(0,  objectname_local); 
+      objectname_local = vlineDoWlabelbasename 
+          + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])]+"_DoW";
+      // objectname_local3 = vlinelabelbasename + object_comment + "_DoW";
+
+      ObjectDelete(0,  objectname_local); 
+      objectname_local = vlinelabelbasename 
+          + TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])]+"_DoW";
+      // objectname_local3 = vlinelabelbasename + object_comment + "_DoW";
+
+      ObjectDelete(0,  objectname_local); 
+
+    }
+  }
   }
   EventKillTimer();
 }
@@ -88,6 +137,11 @@ int     OnCalculate( const int       rates_total
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+  //Check_Denomi();
+
+  //if(true || scaleChart_prev != scaleChart){
+  //  Delete_Vlines_and_Labels();
+  //}
   DrawJSTLine();
   JST_BackGround();
   //Print ("DEBUG Timer");
@@ -100,14 +154,160 @@ void OnChartEvent(const int id,
 {
   long value;
 
+
   if(id == CHARTEVENT_CHART_CHANGE || id == CHARTEVENT_KEYDOWN || (id == CHARTEVENT_CLICK && ChartGetInteger(0, CHART_MOUSE_SCROLL, 0, value))){
+
+    Check_Denomi();
+    if(scaleChart_prev != scaleChart){
+      Delete_Vlines_and_Labels();
+    }
+
+    //JST_ResetToOriginal();
     DrawJSTLine();
     //JST_ResetToOriginal();
     JST_BackGround();
   }
 }
 //++//
+//+-------------------------------------------------------------------------------------------+
+void Check_Denomi(){
 
+  scaleChart_prev = scaleChart;
+  scaleChart =  ChartGetInteger(0,CHART_SCALE,0);
+
+  iDenominator_DoW = 1;
+
+  if(PERIOD_M1 == Period()){
+	  if(scaleChart == 0){
+      iDenominator = 2;
+    }else{
+      iDenominator = 1;
+    }
+  }else if(PERIOD_M5 == Period()){
+    if(scaleChart == 0){
+      // vline
+	    iDenominator = 8;
+      // label
+	    iDenominator2 = 8;
+	  }else if(scaleChart == 1){
+	    iDenominator = 4;
+	    iDenominator2 = 2;
+	  }else if(scaleChart == 2){
+	    iDenominator = 2;
+	    iDenominator2 = 1;
+	  }else{
+	    iDenominator = 1;
+	    iDenominator2 = 1;
+	  }
+  }else if(PERIOD_M1 == Period()){
+	   if(scaleChart == 0){
+      iDenominator = 2;
+    }else{
+      iDenominator = 1;
+    }
+  }else if(PERIOD_M15 == Period()){
+	   if(scaleChart <= 0){
+  	  iDenominator = 24;
+  	  iDenominator2 = 24;
+    }else if(scaleChart <= 1){
+  	  iDenominator = 16;
+  	  iDenominator2 = 16;
+    }else if(scaleChart <= 2){
+  	  iDenominator = 8;
+  	  iDenominator2 = 8;
+    }else if(scaleChart <= 3){
+  	  iDenominator = 4;
+  	  iDenominator2 = 2;
+    }else if(scaleChart <= 4){
+  	  iDenominator = 2;
+  	  iDenominator2 = 2;
+    }else{
+  	  iDenominator = 1;
+  	  iDenominator2 = 1;
+    }
+  }else if(PERIOD_M30 == Period()){
+   if(scaleChart <= 0){
+  	  iDenominator = 48;
+  	  iDenominator2 = 16;
+    }else if(scaleChart <= 1){
+  	  iDenominator = 32;
+  	  iDenominator2 = 16;
+    }else if(scaleChart <= 2){
+  	  iDenominator = 16;
+  	  iDenominator2 = 4;
+    }else if(scaleChart <= 3){
+      iDenominator = 8;
+  	  iDenominator2 = 2;
+    }else if(scaleChart <= 4){
+      iDenominator = 3;
+      iDenominator2 = 1;
+    }else{
+  	  iDenominator = 2;
+  	  iDenominator2 = 1;
+    }
+  }else if(PERIOD_H1 == Period()){
+	   if(scaleChart <= 0){
+  	  iDenominator = 96;
+  	  iDenominator2 = 32;
+    }else if(scaleChart <= 1){
+  	  iDenominator = 64;
+  	  iDenominator2 = 32;
+    }else if(scaleChart <= 2){
+  	  iDenominator = 24;
+  	  iDenominator2 = 8;
+    }else if(scaleChart <= 3){
+  	  iDenominator = 16;
+  	  iDenominator2 = 4;
+    }else if(scaleChart <= 4){
+  	  iDenominator = 6;
+  	  iDenominator2 = 2;
+    }else{
+  	  iDenominator = 3;
+  	  iDenominator2 = 1;
+    }
+  }else if(PERIOD_H4 == Period()){
+    if(scaleChart <= 0){
+  	   iDenominator = 96;
+  	   iDenominator2 = 32;
+      iDenominator_DoW = -1;
+    }else if(scaleChart <= 1){
+  	   iDenominator = 64;
+  	   iDenominator2 = 32;
+      iDenominator_DoW = -1;
+    }else if(scaleChart <= 2){
+  	  iDenominator = 24;
+  	  iDenominator2 = 8;
+    }else if(scaleChart <= 3){
+  	  iDenominator = 16;
+  	  iDenominator2 = 4;
+    }else if(scaleChart <= 4){
+  	  iDenominator = 6;
+  	  iDenominator2 = 2;
+    }else{
+  	  iDenominator = 3;
+  	  iDenominator2 = 1;
+    }
+  }else if(PERIOD_D1 == Period()){
+    if(scaleChart <= 0){
+  	   iDenominator = 96;
+  	   iDenominator2 = 32;
+      iDenominator_DoW = -2;
+    }else if(scaleChart <= 1){
+  	   iDenominator = 64;
+  	   iDenominator2 = 32;
+      iDenominator_DoW = -2;
+    }else{
+      iDenominator = 96;
+      iDenominator2 = 96;
+      iDenominator_DoW = -1;
+    }
+  }else{
+	  iDenominator = 6;
+   iDenominator2 = 1;
+      iDenominator_DoW = 1;
+  }
+
+}
 //+-------------------------------------------------------------------------------------------+
 //| reset to original                                                                         |
 //+-------------------------------------------------------------------------------------------+
@@ -166,14 +366,10 @@ void JST_BackGround(){
   int iCountVline2 = 0;
   int iBarShiftTmp;
   color colorChartBG;
-  int scaleChart;
-  int iDenominator = 1;
-  int iDenominator2 = 1;
   int iBarRatio;
   bool bOutofWin;
 
   colorChartBG = ChartGetInteger(0,CHART_COLOR_BACKGROUND,OBJPROP_COLOR);
-  scaleChart =  ChartGetInteger(0,CHART_SCALE,0);
 
   // for debug
   //if(0 <= StringFind(Symbol() , "EURUSD")){
@@ -184,98 +380,19 @@ void JST_BackGround(){
     iWindowFirstVisibleBar = 1;
   }
 
+  Check_Denomi();
+
   for (int k= obj_total; k>=0; k--){
     string name= ObjectName(k);
     //ObjectSetInteger(0,name, OBJPROP_HIDDEN, false);
 
-    //if (StringSubstr(name,0,17)=="[Background Box]") {ObjectDelete(name);}
-    //if( StringFind(StringSubstr(name,0,10),"VlineLabel")>=0) ObjectSetInteger(0,name, OBJPROP_BACK, true);
-    //if( StringFind(StringSubstr(name,0,10),"VlineLabel")>=0) ObjectSetInteger(0,name, OBJPROP_HIDDEN, false);
     if( StringFind(StringSubstr(name,0,5),"vline")>=0){
-    	if (PERIOD_M5 == Period() && scaleChart == 0){
-        // vline
-    	  iDenominator = 8;
-        // label
-    	  iDenominator2 = 4;
-    	}else if(PERIOD_M5 == Period() && scaleChart == 1){
-    	  iDenominator = 4;
-    	  iDenominator2 = 2;
-    	}else if(PERIOD_M5 == Period() && scaleChart == 2){
-    	  iDenominator = 2;
-    	  iDenominator2 = 1;
-    	}else if(PERIOD_M5 == Period() && 3 <= scaleChart){
-    	  iDenominator = 1;
-    	  iDenominator2 = 1;
-    	}else if(PERIOD_M1 == Period()){
-    	  if(scaleChart == 0){
-          iDenominator = 2;
-        }else{
-          iDenominator = 1;
-        }
-    	}else if(PERIOD_M15 == Period()){
-    	  if(scaleChart <= 0){
-      	  iDenominator = 24;
-      	  iDenominator2 = 8;
-        }else if(scaleChart <= 1){
-      	  iDenominator = 16;
-      	  iDenominator2 = 8;
-        }else if(scaleChart <= 2){
-      	  iDenominator = 8;
-      	  iDenominator2 = 2;
-        }else if(scaleChart <= 3){
-      	  iDenominator = 4;
-      	  iDenominator2 = 2;
-        }else if(scaleChart <= 4){
-      	  iDenominator = 2;
-      	  iDenominator2 = 2;
-        }else{
-      	  iDenominator = 1;
-      	  iDenominator2 = 1;
-        }
-    	}else if(PERIOD_M30 == Period()){
-    	  if(scaleChart <= 0){
-      	  iDenominator = 48;
-      	  iDenominator2 = 16;
-        }else if(scaleChart <= 1){
-      	  iDenominator = 32;
-      	  iDenominator2 = 16;
-        }else if(scaleChart <= 2){
-      	  iDenominator = 16;
-      	  iDenominator2 = 4;
-        }else if(scaleChart <= 3){
-      	  iDenominator = 8;
-      	  iDenominator2 = 2;
-        }else if(scaleChart <= 4){
-      	  iDenominator = 3;
-      	  iDenominator2 = 1;
-        }else{
-      	  iDenominator = 2;
-      	  iDenominator2 = 1;
-        }
-    	}else if(PERIOD_H1 == Period()){
-    	  if(scaleChart <= 0){
-      	  iDenominator = 96;
-      	  iDenominator2 = 32;
-        }else if(scaleChart <= 1){
-      	  iDenominator = 64;
-      	  iDenominator2 = 32;
-        }else if(scaleChart <= 2){
-      	  iDenominator = 24;
-      	  iDenominator2 = 8;
-        }else if(scaleChart <= 3){
-      	  iDenominator = 16;
-      	  iDenominator2 = 4;
-        }else if(scaleChart <= 4){
-      	  iDenominator = 6;
-      	  iDenominator2 = 2;
-        }else{
-      	  iDenominator = 3;
-      	  iDenominator2 = 1;
-        }
-      }else{
-    	  iDenominator = 6;
-        iDenominator2 = 1;
-      }
+      //if (StringSubstr(name,0,17)=="[Background Box]") {ObjectDelete(name);}
+      //if( StringFind(StringSubstr(name,0,10),"VlineLabel")>=0) ObjectSetInteger(0,name, OBJPROP_BACK, true);
+      //if( StringFind(StringSubstr(name,0,10),"VlineLabel")>=0) ObjectSetInteger(0,name, OBJPROP_HIDDEN, false);
+
+      string vlabel_name = "VlineLabel" + StringSubstr(name,5,-1);
+
       dtVline = ObjectGetInteger(0,name, OBJPROP_TIME);
       iBarShiftTmp = iBarShift(0,0,dtVline,true);
       if(iWindowFirstVisibleBar < iBarsInWindow){
@@ -292,14 +409,27 @@ void JST_BackGround(){
         }
       }
       ObjectSetInteger(0,name, OBJPROP_BACK, false);
+      ObjectSetInteger(0,vlabel_name, OBJPROP_BACK, false);
+
       if(!bOutofWin && 0 <= iBarShiftTmp && 90 < iBarRatio && iBarRatio <= 100 ){
         ObjectSetInteger(0,name, OBJPROP_BACK, true);
+        ObjectSetInteger(0,vlabel_name, OBJPROP_BACK, true);
       }
       if(iCountVline % iDenominator != 0){
-        ObjectSetInteger(0,name, OBJPROP_BACK, true);
+        if(bDenomiBG){
+          ObjectSetInteger(0,name, OBJPROP_BACK, true);
+          ObjectSetInteger(0,vlabel_name, OBJPROP_BACK, true);
+        }else{
+          ObjectSetInteger(0,name, OBJPROP_BACK, true);
+          ObjectSetInteger(0,name, OBJPROP_COLOR, colorChartBG);
+          ObjectSetInteger(0,vlabel_name, OBJPROP_BACK, true);
+          ObjectSetInteger(0,vlabel_name, OBJPROP_COLOR, colorChartBG);
+        }
       }
       iCountVline++;
     }
+
+    // v label
     if( StringFind(StringSubstr(name,0,10),"VlineLabel")>=0){
       dtVline = ObjectGetInteger(0,name, OBJPROP_TIME);
       iBarShiftTmp = iBarShift(0,0,dtVline,true);
@@ -316,16 +446,19 @@ void JST_BackGround(){
           iBarRatio = 100-100*(iWindowFirstVisibleBar-iBarShiftTmp)/iBarsInWindow;
         }
       }
-      if(iCountVline2 % iDenominator2 != 0){
-        //ObjectSetInteger(0,name, OBJPROP_BACK, true);
-        ObjectSetInteger(0,name, OBJPROP_BACK, true);
-        ObjectSetInteger(0,name, OBJPROP_COLOR, colorChartBG);
-      }else{
-        ObjectSetInteger(0,name, OBJPROP_BACK, false);
+      if(bDenomiBG){
+        if(iCountVline2 % iDenominator2 != 0){
+          ObjectSetInteger(0,name, OBJPROP_BACK, true);
+          //ObjectSetInteger(0,name, OBJPROP_COLOR, colorChartBG);
+          ObjectSetInteger(0,name, OBJPROP_COLOR, clrNONE);
+        }else{
+          ObjectSetInteger(0,name, OBJPROP_BACK, false);
+        }
       }
       if(!bOutofWin && 0 <= iBarShiftTmp && 90 < iBarRatio && iBarRatio <= 100 ){
         ObjectSetInteger(0,name, OBJPROP_BACK, true);
-        ObjectSetInteger(0,name, OBJPROP_COLOR, colorChartBG);
+        //ObjectSetInteger(0,name, OBJPROP_COLOR, colorChartBG);
+        ObjectSetInteger(0,name, OBJPROP_COLOR, clrNONE);
         //ObjectSetString(0,name, OBJPROP_TEXT, "AAAAA");
         //Print ("iBarsInWindow = " + iBarsInWindow);
         //Print ("iWindowFirstVisibleBar = " + iWindowFirstVisibleBar);
@@ -405,9 +538,9 @@ void DrawJSTLine(){
     object_comment = TimeToString(iTime(NULL,0,i), TIME_DATE|TIME_MINUTES)+strDoW[TimeDayOfWeek(Time[i])];
     objectname_local = vlinebasename + object_comment;
     objectname_local2 = vlinelabelbasename + object_comment;
-    objectname_local3 = vlinelabelbasename + object_comment + "_DoW";
+    objectname_local3 = vlineDoWlabelbasename + object_comment + "_DoW";
 
-    if(minute == 0){
+    if(minute == 0 && bShowVLine){
 
       if (ObjectFind(objectname_local) < 0){
         ObjectCreate(0,objectname_local, OBJ_VLINE, 0, Time[i],0);
@@ -478,39 +611,47 @@ void DrawJSTLine(){
 
     } // minute=0
 
+    // Day of week
+    // iDenominator_DoW < 0 then only monday
     if(bShowDayOfWeek && (TimeDayOfWeek(Time[i]) != TimeDayOfWeek(Time[i+1]))){
       // yobi kirikawari
-      if (ObjectFind(objectname_local3) < 0){
-        ObjectCreate(0,objectname_local3, OBJ_TEXT, 0, Time[i],chart_price_min);
-   	    //ObjectCreate(indicator_sname, OBJ_LABEL, 0, 0, 0);
-      }else{
-        ObjectMove(0, objectname_local3, 0, Time[i],chart_price_min);
-      }
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_FONTSIZE,FontSize);         // フォントサイズ
+      if(0< iDenominator_DoW || (iDenominator_DoW == -1 && 1 == TimeDayOfWeek(Time[i]))){
+      
+        if (ObjectFind(objectname_local3) < 0){
+          ObjectCreate(0,objectname_local3, OBJ_TEXT, 0, Time[i],chart_price_min);
+     	    //ObjectCreate(indicator_sname, OBJ_LABEL, 0, 0, 0);
+        }else{
+          ObjectMove(0, objectname_local3, 0, Time[i],chart_price_min);
+        }
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_FONTSIZE,FontSize);         // フォントサイズ
 
-      // オブジェクトバインディングのアンカーポイント設定
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_ANCHOR,ANCHOR_LOWER);  
-      ObjectSetString(chart_id,objectname_local3,OBJPROP_FONT,FontName); // フォント
+        // オブジェクトバインディングのアンカーポイント設定
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_ANCHOR,ANCHOR_LOWER);  
+        ObjectSetString(chart_id,objectname_local3,OBJPROP_FONT,FontName); // フォント
 
-      if(Summerflag(i)){
-        // winter
-        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_COLOR,JST_Color_Winter);    // ラインの色設定
-      }else{
-        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_COLOR, JST_Color_Summer );    // ラインの色設定
-      }
+        if(Summerflag(i)){
+          // winter
+          ObjectSetInteger(chart_id,objectname_local3,OBJPROP_COLOR,JST_Color_Winter);    // ラインの色設定
+        }else{
+          ObjectSetInteger(chart_id,objectname_local3,OBJPROP_COLOR, JST_Color_Summer );    // ラインの色設定
+        }
 
-      //input int FontSize=10;
-      //input string FontName = "Segoe UI";
+        //input int FontSize=10;
+        //input string FontName = "Segoe UI";
     
-      ObjectSetString(chart_id,objectname_local3,OBJPROP_TEXT,strDoW[TimeDayOfWeek(Time[i])]);   // 表示するテキスト
-
-      //ObjectSetInteger(chart_id,objectname_local2,OBJPROP_STYLE,STYLE_DOT);  // ラインのスタイル設定
-      //ObjectSetInteger(chart_id,objectname_local2,OBJPROP_WIDTH,1);              // ラインの幅設定
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_BACK,false);           // オブジェクトの背景表示設定
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_SELECTABLE,false);     // オブジェクトの選択可否設定
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_SELECTED,false);      // オブジェクトの選択状態
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_HIDDEN,true);         // オブジェクトリスト表示設定
-      ObjectSetInteger(chart_id,objectname_local3,OBJPROP_ZORDER,0);      // オブジェクトのチャートクリックイベント優先順位
+        ObjectSetString(chart_id,objectname_local3,OBJPROP_TEXT,strDoW[TimeDayOfWeek(Time[i])]);   // 表示するテキスト
+ 
+        //ObjectSetInteger(chart_id,objectname_local2,OBJPROP_STYLE,STYLE_DOT);  // ラインのスタイル設定
+        //ObjectSetInteger(chart_id,objectname_local2,OBJPROP_WIDTH,1);              // ラインの幅設定
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_BACK,false);           // オブジェクトの背景表示設定
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_SELECTABLE,false);     // オブジェクトの選択可否設定
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_SELECTED,false);      // オブジェクトの選択状態
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_HIDDEN,true);         // オブジェクトリスト表示設定
+        ObjectSetInteger(chart_id,objectname_local3,OBJPROP_ZORDER,0);      // オブジェクトのチャートクリックイベント優先順位
+      }
+      ///// add here for DayStartOnly
+      
+      ///// to here
 
     }
 
